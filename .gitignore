@@ -1,0 +1,58 @@
+*.class
+*.log
+.cache
+
+# sbt specific
+**/.history
+**/lib_managed/
+**/src_managed/
+**/project/boot/
+**/project/plugins/project/
+**/project/project
+**/target/*
+
+# Scala-IDE specific
+**/.scala_dependencies
+**/.settings
+**/.worksheet
+**/.classpath
+**/bin
+
+# IDEA
+**/*.iml
+**/.idea_modules
+**/.idea
+
+# Sublime
+**/*.sublime-workspace
+
+# Ensime
+**/*.ensime*
+
+# VS Code
+**/.vscode
+
+# BSP
+**/.bsp
+
+# Bloop
+**/.bloop
+
+# Metals
+**/.metals
+**/project/metals.sbt
+
+scripts/secrets
+
+# Logging
+**/src/test/resources/logback-test.xml
+
+# Conf files that might have secrets in
+**/src/test/resources/secret.conf
+
+start.sh
+
+docker-compose/mi-api/key.json
+
+# put secrets e.g. fossa API key in here when testing github action locally
+.secrets
