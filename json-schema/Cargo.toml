@@ -1,0 +1,13 @@
+[package]
+name = "json-schema"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+jsonschema = "0.29.0"
+serde_json = { workspace = true }
+
+[dev-dependencies]
+assertables = { workspace = true }
+assert-json-diff = { workspace = true }

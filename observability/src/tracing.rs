@@ -1,4 +1,5 @@
 use serde::Serialize;
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::Debug;
@@ -8,25 +9,25 @@ use tracing_subscriber::{registry::LookupSpan, Layer};
 #[derive(Debug, Serialize)]
 struct LogOutput<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
-    message: Option<&'a serde_json::Value>,
+    message: Option<&'a Value>,
     name: &'a str,
     severity: &'a str,
     parent: &'a str,
-    fields: &'a BTreeMap<String, serde_json::Value>,
+    fields: &'a BTreeMap<String, Value>,
     target: &'a str,
 }
 
 #[derive(Debug, Clone)]
 struct JsonFieldStorage {
-    storage: BTreeMap<String, serde_json::Value>,
+    storage: BTreeMap<String, Value>,
 }
 
 pub struct FlatJsonLayer {}
 
 impl FlatJsonLayer {
     fn collect_span_fields(
-        span_storages: impl Iterator<Item = Option<BTreeMap<String, serde_json::Value>>>,
-    ) -> BTreeMap<String, serde_json::Value> {
+        span_storages: impl Iterator<Item = Option<BTreeMap<String, Value>>>,
+    ) -> BTreeMap<String, Value> {
         let mut span_fields = BTreeMap::new();
         span_storages.for_each(|storage| {
             if let Some(mut storage_data) = storage {
@@ -37,12 +38,12 @@ impl FlatJsonLayer {
     }
 
     fn build_output(
-        payload: &BTreeMap<String, serde_json::Value>,
+        payload: &BTreeMap<String, Value>,
         target: &str,
         name: &str,
         severity: &str,
         parent: &str,
-    ) -> serde_json::Value {
+    ) -> Value {
         let message = payload.get("message");
 
         serde_json::json!(LogOutput {
@@ -61,6 +62,40 @@ where
     S: tracing::Subscriber,
     S: for<'lookup> LookupSpan<'lookup>,
 {
+    fn on_new_span(
+        &self,
+        attrs: &tracing::span::Attributes<'_>,
+        id: &tracing::span::Id,
+        ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let mut fields = BTreeMap::new();
+        let mut visitor = JsonVisitor {
+            storage: &mut fields,
+        };
+        attrs.record(&mut visitor);
+
+        let storage = JsonFieldStorage { storage: fields };
+        if let Some(span) = ctx.span(id) {
+            span.extensions_mut().insert::<JsonFieldStorage>(storage);
+        }
+    }
+
+    fn on_record(
+        &self,
+        id: &tracing::span::Id,
+        values: &tracing::span::Record<'_>,
+        ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        if let Some(span) = ctx.span(id) {
+            let mut extensions = span.extensions_mut();
+            if let Some(json_storage) = extensions.get_mut::<JsonFieldStorage>() {
+                let json_data = &mut json_storage.storage;
+                let mut visitor = JsonVisitor { storage: json_data };
+                values.record(&mut visitor);
+            }
+        }
+    }
+
     fn on_event(&self, event: &tracing::Event<'_>, ctx: tracing_subscriber::layer::Context<'_, S>) {
         let mut fields = if let Some(scope) = ctx.event_scope(event) {
             let mapping = scope.from_root().map(|item| {
@@ -96,50 +131,16 @@ where
 
         println!("{}", serde_json::to_string(&output).unwrap());
     }
-
-    fn on_record(
-        &self,
-        id: &tracing::span::Id,
-        values: &tracing::span::Record<'_>,
-        ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) {
-        if let Some(span) = ctx.span(id) {
-            let mut extensions = span.extensions_mut();
-            if let Some(json_storage) = extensions.get_mut::<JsonFieldStorage>() {
-                let json_data = &mut json_storage.storage;
-                let mut visitor = JsonVisitor { storage: json_data };
-                values.record(&mut visitor);
-            }
-        }
-    }
-
-    fn on_new_span(
-        &self,
-        attrs: &tracing::span::Attributes<'_>,
-        id: &tracing::span::Id,
-        ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) {
-        let mut fields = BTreeMap::new();
-        let mut visitor = JsonVisitor {
-            storage: &mut fields,
-        };
-        attrs.record(&mut visitor);
-
-        let storage = JsonFieldStorage { storage: fields };
-        if let Some(span) = ctx.span(id) {
-            span.extensions_mut().insert::<JsonFieldStorage>(storage);
-        }
-    }
 }
 
 struct JsonVisitor<'a> {
-    storage: &'a mut BTreeMap<String, serde_json::Value>,
+    storage: &'a mut BTreeMap<String, Value>,
 }
 
 impl JsonVisitor<'_> {
     fn record_debug_as_json(&mut self, field_name: String, value: &dyn Debug) {
         let value_str = format!("{:?}", value);
-        let json_value: serde_json::Value =
+        let json_value: Value =
             serde_json::from_str(value_str.as_str()).unwrap_or(serde_json::json!(value_str));
         self.storage.insert(field_name, json_value);
     }
@@ -242,27 +243,21 @@ mod tests {
     #[test]
     fn trace_output_message_is_message_from_payload() {
         let payload = BTreeMap::from([
-            (
-                "message".to_string(),
-                json!("this is a message"),
-            ),
+            ("message".to_string(), json!("this is a message")),
             ("different_field".to_string(), json!(123)),
         ]);
         let resulting_value =
             FlatJsonLayer::build_output(&payload, "testTarget", "testName", "INFO", "testParent");
         assert_eq!(
             resulting_value.get("message"),
-            Some(&serde_json::Value::String("this is a message".into()))
+            Some(&Value::String("this is a message".into()))
         )
     }
 
     #[test]
     fn trace_output_contains_log_fields() {
         let payload = BTreeMap::from([
-            (
-                "message".to_string(),
-                json!("this is a message"),
-            ),
+            ("message".to_string(), json!("this is a message")),
             ("different_field".to_string(), json!(123)),
         ]);
         let resulting_value =

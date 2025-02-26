@@ -1,3 +1,4 @@
-mod category;
-mod layer;
-mod tracing;
+pub mod category;
+pub mod layer;
+pub mod setup;
+pub mod tracing;
