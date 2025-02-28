@@ -56,3 +56,5 @@ docker-compose/mi-api/key.json
 
 # put secrets e.g. fossa API key in here when testing github action locally
 .secrets
+
+.env
