@@ -1,5 +1,5 @@
 [package]
-name = "json-schema"
+name = "flexys-json-schema"
 version = "0.1.0"
 edition = "2021"
 
