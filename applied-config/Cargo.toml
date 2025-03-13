@@ -1,0 +1,12 @@
+[package]
+name = "flexys-applied-config"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+actix-web = { version = "4.10.2" }
+anyhow = { workspace = true }
+flexys-observability = { path = "../observability" }
+tokio = { workspace = true }
+tokio_schedule = "0.3.2"
+tracing = { workspace = true }
