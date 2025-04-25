@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tokio::task::JoinHandle;
 use tokio_schedule::{every, Job};
-use tracing::{error, info, warn};
+use tracing::warn;
 
 pub async fn shutdown_on_config_change(
     polling_period_in_sec: u32,
