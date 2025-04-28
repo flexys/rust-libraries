@@ -32,7 +32,7 @@ pub async fn retrieve_keycloak_token(
     client: &Client,
     keycloak_config: KeycloakConfig,
 ) -> Result<KeycloakToken> {
-    let keycloak_admin_url = keycloak_config.url;
+    let keycloak_admin_url = format!("{}/auth/realms/flexys/protocol/openid-connect/token", keycloak_config.url);
 
     info!(
         "Retrieving keycloak token from endpoint: {}",
