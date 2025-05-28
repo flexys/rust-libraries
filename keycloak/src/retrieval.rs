@@ -114,13 +114,13 @@ pub fn refresh_keycloak_token_periodically_in_background<F, Fut>(
         let max_retries = 3;
 
         while let Some(ts) = interval_stream.next().await {
-            let keycloak_token_read_guard = keycloak_token.read().await;
-            
-            let expiry = keycloak_token_read_guard.expiry;
+            let expiry : Instant = {
+                let keycloak_token_read_guard = keycloak_token.read().await;
+
+                keycloak_token_read_guard.expiry
+            };
             
             if ts.into_std() > expiry {
-                drop(keycloak_token_read_guard);
-
                 let mut keycloak_token_write_guard = keycloak_token.write().await;
 
                 debug!("Keycloak token `{}` expired", keycloak_token_write_guard.access_token);
