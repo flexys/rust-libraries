@@ -1,13 +1,18 @@
 use crate::{KeycloakConfig, KeycloakToken};
 use std::collections::HashMap;
+use std::future::Future;
 use std::ops::Add;
+use std::sync::{Arc};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use backon::{ExponentialBuilder, Retryable};
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
-use tracing::{info, warn};
+use tokio::sync::Mutex;
+use tokio_stream::StreamExt;
+use tokio_stream::wrappers::IntervalStream;
+use tracing::{debug, info, warn};
 
 #[derive(Deserialize, Debug)]
 struct KeycloakTokenResponse {
@@ -90,6 +95,50 @@ pub async fn keycloak_token_with_retry(
             )
         })
         .await
+}
+
+pub fn refresh_keycloak_token_periodically_in_background<F, Fut>(
+    client: Client,
+    keycloak_config: KeycloakConfig,
+    keycloak_expiry_check_interval_in_seconds: u64,
+    keycloak_token: Arc<Mutex<KeycloakToken>>,
+    on_token_refresh: F,
+) where
+    F: Fn(KeycloakToken) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ()> + Send + 'static, {
+    tokio::spawn(async move {
+        let mut interval_stream = IntervalStream::new(tokio::time::interval(Duration::from_secs(
+            keycloak_expiry_check_interval_in_seconds,
+        )));
+
+        let max_retries = 3;
+
+        while let Some(ts) = interval_stream.next().await {
+            let mut keycloak_token_guard = keycloak_token.lock().await;
+
+            if ts.into_std() > keycloak_token_guard.expiry {
+                debug!("Keycloak token `{}` expired", keycloak_token_guard.access_token);
+
+                *keycloak_token_guard =
+                    keycloak_token_with_retry(&client, keycloak_config.clone(), max_retries)
+                        .await
+                        .unwrap_or_else(|_| {
+                            panic!("Unable to retrieve keycloak token after {max_retries} retries.")
+                        });
+
+                debug!(
+                    "Retrieved new keycloak token `{}`",
+                    keycloak_token_guard.access_token
+                );
+
+                let callback_token = keycloak_token_guard.clone();
+
+                drop(keycloak_token_guard); // avoid holding the lock during callback
+                
+                on_token_refresh(callback_token).await;
+            }
+        }
+    });
 }
 
 fn derive_expiry_calculated_keycloak_token(response: KeycloakTokenResponse) -> KeycloakToken {
