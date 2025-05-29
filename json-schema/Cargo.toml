@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
-jsonschema = "0.29.0"
+jsonschema = "0.30.0"
 serde_json = { workspace = true }
 
 [dev-dependencies]
