@@ -2,16 +2,16 @@ use crate::{KeycloakConfig, KeycloakToken};
 use std::collections::HashMap;
 use std::future::Future;
 use std::ops::Add;
-use std::sync::{Arc};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use backon::{ExponentialBuilder, Retryable};
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
-use tokio::sync::{Mutex, RwLock};
-use tokio_stream::StreamExt;
+use tokio::sync::RwLock;
 use tokio_stream::wrappers::IntervalStream;
+use tokio_stream::StreamExt;
 use tracing::{debug, info, warn};
 
 #[derive(Deserialize, Debug)]
@@ -37,11 +37,14 @@ pub async fn retrieve_keycloak_token(
     client: &Client,
     keycloak_config: KeycloakConfig,
 ) -> Result<KeycloakToken> {
-    let keycloak_admin_url = format!("{}/auth/realms/flexys/protocol/openid-connect/token", keycloak_config.url);
+    let keycloak_admin_url = format!(
+        "{}/auth/realms/flexys/protocol/openid-connect/token",
+        keycloak_config.url
+    );
 
     info!(
-        "Retrieving keycloak token from endpoint: {}",
-        keycloak_admin_url
+        keycloak_endpoint = keycloak_admin_url,
+        "Retrieving keycloak token from endpoint",
     );
 
     let mut params: HashMap<&str, &str> = HashMap::new();
@@ -105,7 +108,8 @@ pub fn refresh_keycloak_token_periodically_in_background<F, Fut>(
     on_token_refresh: F,
 ) where
     F: Fn(KeycloakToken) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = ()> + Send + 'static, {
+    Fut: Future<Output = ()> + Send + 'static,
+{
     tokio::spawn(async move {
         let mut interval_stream = IntervalStream::new(tokio::time::interval(Duration::from_secs(
             keycloak_expiry_check_interval_in_seconds,
@@ -114,34 +118,52 @@ pub fn refresh_keycloak_token_periodically_in_background<F, Fut>(
         let max_retries = 3;
 
         while let Some(ts) = interval_stream.next().await {
-            let expiry : Instant = {
+            // Code block scoped rwlock read so that when the block goes out of scope, it is automatically dropped
+            let expiry: Instant = {
                 let keycloak_token_read_guard = keycloak_token.read().await;
 
                 keycloak_token_read_guard.expiry
             };
-            
+
             if ts.into_std() > expiry {
-                let mut keycloak_token_write_guard = keycloak_token.write().await;
+                // Separate out logging the fact the token has expired from the writing of a new token to keep exclusive
+                // access to an absolute minimum. Scoped to automatically drop the read lock.
+                let old_access_token: String = {
+                    let token_read_lock = keycloak_token.read().await;
 
-                debug!("Keycloak token `{}` expired", keycloak_token_write_guard.access_token);
-
-                *keycloak_token_write_guard =
-                    keycloak_token_with_retry(&client, keycloak_config.clone(), max_retries)
-                        .await
-                        .unwrap_or_else(|_| {
-                            panic!("Unable to retrieve keycloak token after {max_retries} retries.")
-                        });
+                    token_read_lock.access_token.clone()
+                };
 
                 debug!(
-                    "Retrieved new keycloak token `{}`",
-                    keycloak_token_write_guard.access_token
+                    token = old_access_token,
+                    "Keycloak token will expire soon. Retrieving new token.",
                 );
 
-                let callback_token = keycloak_token_write_guard.clone();
+                // Code block scoped rwlock write so that when the block goes out of scope, it is automatically dropped.
+                // Do this before additional logging and the callback to keep the time when it is exclusively held to
+                // the minimum.
+                let new_keycloak_token: KeycloakToken = {
+                    let mut keycloak_token_write_guard = keycloak_token.write().await;
 
-                drop(keycloak_token_write_guard); // avoid holding the lock during callback
-                
-                on_token_refresh(callback_token).await;
+                    *keycloak_token_write_guard = keycloak_token_with_retry(
+                        &client,
+                        keycloak_config.clone(),
+                        max_retries,
+                    )
+                    .await
+                    .unwrap_or_else(|_| {
+                        panic!("Unable to retrieve keycloak token after {max_retries} retries.")
+                    });
+
+                    keycloak_token_write_guard.clone()
+                };
+
+                debug!(
+                    token = new_keycloak_token.access_token,
+                    "Retrieved new keycloak token.",
+                );
+
+                on_token_refresh(new_keycloak_token).await;
             }
         }
     });

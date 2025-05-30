@@ -3,8 +3,8 @@ use jsonschema::validator_for;
 use serde_json::Value;
 
 pub fn validate_json(schema: &Value, inputs: &Value) -> Result<()> {
-    let validator = validator_for(schema)
-        .map_err(|err| anyhow!("Invalid json schema, error: {err}"))?;
+    let validator =
+        validator_for(schema).map_err(|err| anyhow!("Invalid json schema, error: {err}"))?;
 
     let validation = validator.validate(inputs);
 
