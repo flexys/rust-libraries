@@ -143,19 +143,21 @@ pub fn refresh_keycloak_token_periodically_in_background<F, Fut>(
                 // Do this before additional logging and the callback to keep the time when it is exclusively held to
                 // the minimum.
                 let new_keycloak_token: KeycloakToken = {
-                    let mut keycloak_token_write_guard = keycloak_token.write().await;
-
-                    *keycloak_token_write_guard = keycloak_token_with_retry(
+                    let new_token =  keycloak_token_with_retry(
                         &client,
                         keycloak_config.clone(),
                         max_retries,
                     )
-                    .await
-                    .unwrap_or_else(|_| {
-                        panic!("Unable to retrieve keycloak token after {max_retries} retries.")
-                    });
+                        .await
+                        .unwrap_or_else(|_| {
+                            panic!("Unable to retrieve keycloak token after {max_retries} retries.")
+                        });
+                    
+                    let mut keycloak_token_write_guard = keycloak_token.write().await;
 
-                    keycloak_token_write_guard.clone()
+                    *keycloak_token_write_guard = new_token.clone();
+
+                    new_token
                 };
 
                 debug!(
