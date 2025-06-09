@@ -1,8 +1,8 @@
 use crate::category::PANIC;
 use crate::layer::PLATFORM;
 use crate::tracing::FlatJsonLayer;
-use std::panic::PanicHookInfo;
 use ::tracing::level_filters::LevelFilter;
+use std::panic::PanicHookInfo;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
