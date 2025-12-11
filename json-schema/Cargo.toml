@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
-jsonschema = "0.30.0"
+jsonschema = { version = "0.37.0", default-features = false } # disable all resolving
 serde_json = { workspace = true }
 
 [dev-dependencies]
