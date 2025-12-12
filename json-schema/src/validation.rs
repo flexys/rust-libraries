@@ -15,9 +15,9 @@ pub fn validate_json(schema: &Value, inputs: &Value) -> Result<()> {
                 format!(
                     "Validation Error [{}]. Schema Path [{}]. Instance Path [{}]. Instance: {}",
                     error_instance,
-                    error_instance.schema_path,
-                    error_instance.instance_path,
-                    serde_json::to_string_pretty(&error_instance.instance).unwrap()
+                    error_instance.schema_path(),
+                    error_instance.instance_path(),
+                    serde_json::to_string_pretty(&error_instance.instance()).unwrap()
                 )
             })
             .reduce(|total_errors, error_line| total_errors + ", " + error_line.as_str())
@@ -204,5 +204,63 @@ mod tests {
             json!({ "foo": "boom", "baz": "bing" }),
             Config::new(CompareMode::Strict)
         );
+    }
+
+    #[test]
+    fn returns_validation_error_if_schema_contains_external_references() {
+        let schema = json!({
+            "type": "object",
+            "properties":{
+                "address": {
+                    "$ref": "https://example.com/schemas/address.json"
+                }
+            },
+            "required": ["testKey"]
+        });
+        let inputs = json!({
+            "testKey": {}
+        });
+
+        let result = validate_json(&schema, &inputs);
+
+        assert_starts_with!(
+            result.unwrap_err().to_string(),
+            "Invalid json schema, error: Resource 'https://example.com/schemas/address.json' is not present"
+        )
+    }
+
+    #[test]
+    fn schema_with_internal_references_can_be_used_to_validate() {
+        let schema = json!({
+            "type": "object",
+            "$defs": {
+              "address": {
+                "type": "object",
+                "properties": {
+                  "street": { "type": "string" },
+                  "city": { "type": "string" },
+                  "postCode": { "type": "string" }
+                },
+                "required": ["street", "city", "postCode"]
+              }
+            },
+            "properties":{
+                "address": {
+                    "$ref": "#/$defs/address"
+                }
+            },
+            "required": ["address"]
+        });
+        let inputs = json!({
+            "address": {
+                "street": "Buckingham Palace",
+                "city": "London",
+                "postCode": "SW1A 1AA"
+            }
+        });
+
+        let result = validate_json(&schema, &inputs);
+
+        assert_eq!(result.ok(), Some(()));
     }
 }
