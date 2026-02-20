@@ -2,15 +2,30 @@ use anyhow::{anyhow, bail, Result};
 use jsonschema::validator_for;
 use serde_json::Value;
 
-pub fn validate_json(schema: &Value, inputs: &Value) -> Result<()> {
-    let validator =
-        validator_for(schema).map_err(|err| anyhow!("Invalid json schema, error: {err}"))?;
+pub struct JsonSchema(Value);
+pub struct JsonDocument(Value);
 
-    let validation = validator.validate(inputs);
+impl JsonSchema {
+    pub fn new(value: Value) -> Self {
+        Self(value)
+    }
+}
+
+impl JsonDocument {
+    pub fn new(value: Value) -> Self {
+        Self(value)
+    }
+}
+
+pub fn validate_json(schema: &JsonSchema, input: &JsonDocument) -> Result<()> {
+    let validator =
+        validator_for(&schema.0).map_err(|err| anyhow!("Invalid json schema, error: {err}"))?;
+
+    let validation = validator.validate(&input.0);
 
     if validation.is_err() {
         let error_msg = validator
-            .iter_errors(inputs)
+            .iter_errors(&input.0)
             .map(|error_instance| {
                 format!(
                     "Validation Error [{}]. Schema Path [{}]. Instance Path [{}]. Instance: {}",
@@ -29,25 +44,25 @@ pub fn validate_json(schema: &Value, inputs: &Value) -> Result<()> {
     Ok(())
 }
 
-/// Merge two json object into a single object with combined keys.
+/// Merge two json objects into a single object with combined keys.
 /// Where two objects share a key, the second value wins.
 /// If the values passed aren't objects, returns an error.
-pub fn merge_json_objects(a: Value, b: Value) -> Result<Value> {
+pub fn merge_json_objects(a: JsonDocument, b: JsonDocument) -> Result<Value> {
     match (a, b) {
-        (Value::Object(a), Value::Object(b)) => {
+        (JsonDocument(Value::Object(a)), JsonDocument(Value::Object(b))) => {
             let merged_map = a.into_iter().chain(b).collect();
 
             Ok(Value::Object(merged_map))
         }
-        (Value::Object(_), b) => {
+        (JsonDocument(Value::Object(_)), JsonDocument(b)) => {
             let b_prettified = serde_json::to_string_pretty(&b)?;
             bail!("value required to be object to merge. Instead got {b_prettified}");
         }
-        (a, Value::Object(_)) => {
+        (JsonDocument(a), JsonDocument(Value::Object(_))) => {
             let a_prettified = serde_json::to_string_pretty(&a)?;
             bail!("value required to be object to merge. Instead got {a_prettified}");
         }
-        (a, b) => {
+        (JsonDocument(a), JsonDocument(b)) => {
             let a_prettified = serde_json::to_string_pretty(&a)?;
             let b_prettified = serde_json::to_string_pretty(&b)?;
 
@@ -62,7 +77,7 @@ mod tests {
     use assertables::assert_starts_with;
     use serde_json::json;
 
-    use super::{merge_json_objects, validate_json};
+    use super::{merge_json_objects, validate_json, JsonDocument, JsonSchema};
 
     #[test]
     fn test_validate_json_errors_messages_contain_paths() {
@@ -82,8 +97,10 @@ mod tests {
           "x": "wibble",
           "y": "wobble"
         });
+        let json_schema = JsonSchema::new(schema);
+        let json_document = JsonDocument::new(inputs);
 
-        let result = validate_json(&schema, &inputs);
+        let result = validate_json(&json_schema, &json_document);
         assert!(result.is_err());
         assert_starts_with!(
             result.unwrap_err().to_string(),
@@ -106,7 +123,10 @@ mod tests {
             "testKey": "testValue"
         });
 
-        let result = validate_json(&schema, &inputs);
+        let json_schema = JsonSchema::new(schema);
+        let json_document = JsonDocument::new(inputs);
+
+        let result = validate_json(&json_schema, &json_document);
         assert_eq!(result.ok(), Some(()));
     }
 
@@ -125,7 +145,10 @@ mod tests {
             "wrongKey": "testValue"
         });
 
-        let result = validate_json(&schema, &inputs);
+        let json_schema = JsonSchema::new(schema);
+        let json_document = JsonDocument::new(inputs);
+
+        let result = validate_json(&json_schema, &json_document);
         assert!(result.is_err());
         assert_starts_with!(
             result.unwrap_err().to_string(),
@@ -141,7 +164,7 @@ mod tests {
             "baz": "bing"
         });
 
-        let result = merge_json_objects(obj1, obj2);
+        let result = merge_json_objects(JsonDocument::new(obj1), JsonDocument::new(obj2));
 
         assert_eq!(
             result.unwrap_err().to_string(),
@@ -157,7 +180,7 @@ mod tests {
 
         let obj2 = json!(1);
 
-        let result = merge_json_objects(obj1, obj2);
+        let result = merge_json_objects(JsonDocument::new(obj1), JsonDocument::new(obj2));
 
         assert_eq!(
             result.unwrap_err().to_string(),
@@ -175,8 +198,8 @@ mod tests {
             "baz": "bing"
         });
 
-        let result =
-            merge_json_objects(obj1, obj2).expect("Two objects should have merged successfully");
+        let result = merge_json_objects(JsonDocument::new(obj1), JsonDocument::new(obj2))
+            .expect("Two objects should have merged successfully");
 
         assert_json_matches!(
             result,
@@ -196,8 +219,8 @@ mod tests {
             "baz": "bing"
         });
 
-        let result =
-            merge_json_objects(obj1, obj2).expect("Two objects should have merged successfully");
+        let result = merge_json_objects(JsonDocument::new(obj1), JsonDocument::new(obj2))
+            .expect("Two objects should have merged successfully");
 
         assert_json_matches!(
             result,
@@ -221,7 +244,10 @@ mod tests {
             "testKey": {}
         });
 
-        let result = validate_json(&schema, &inputs);
+        let json_schema = JsonSchema::new(schema);
+        let json_document = JsonDocument::new(inputs);
+
+        let result = validate_json(&json_schema, &json_document);
 
         assert_starts_with!(
             result.unwrap_err().to_string(),
@@ -259,7 +285,10 @@ mod tests {
             }
         });
 
-        let result = validate_json(&schema, &inputs);
+        let json_schema = JsonSchema::new(schema);
+        let json_document = JsonDocument::new(inputs);
+
+        let result = validate_json(&json_schema, &json_document);
 
         assert_eq!(result.ok(), Some(()));
     }
